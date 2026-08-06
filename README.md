@@ -1,26 +1,17 @@
 # Ubuntu Bootstrap
 
-A single script that sets up a developer workstation on Ubuntu, on **arm64** and
-**amd64** — built for a UTM VM on Apple Silicon and for normal laptops. Any other
-architecture exits immediately.
+A single script that sets up a workstation on Ubuntu, on **arm64** and **amd64**. 
+Any other architecture exits immediately.
 
-## Run it
+## Run
 
 ```bash
-sudo apt update
-sudo apt install -y git curl
-
-git clone https://github.com/danielsram/ubuntu-bootstrap.git
-cd ubuntu-bootstrap
-
-nano ubuntu-bootstrap.sh    # versions and feature flags are at the top
-
 ./ubuntu-bootstrap.sh
 ```
 
-Run it as your **regular user, not under sudo** — nvm, SDKMAN and Claude Code install
-into `$HOME`, the Claude Code installer refuses to run under sudo, and the docker group
-would be granted to `root` instead of you.
+Run it as a **regular user, not under sudo** — nvm, SDKMAN and Claude Code install into `$HOME`, 
+the Claude Code installer refuses to run under sudo, 
+and the docker group would be granted to `root` instead of you.
 
 ## Configure
 
@@ -48,7 +39,7 @@ INSTALL_PROTONVPN=true
 
 | Group | Tools |
 |---|---|
-| Base | curl, wget, redis-cli, zip/unzip, build-essential, ca-certificates, gnupg, software-properties-common, apt-transport-https, lsb-release, ubuntu-restricted-extras |
+| Base | curl, wget, redis-cli, zip/unzip, build-essential, ca-certificates, gnupg, software-properties-common, apt-transport-https, lsb-release, xdg-utils, ubuntu-restricted-extras |
 | Firewall | ufw — deny all inbound, allow outbound, low logging |
 | Runtimes | Java via SDKMAN, Node via nvm |
 | Containers / k8s | Docker + compose plugin, kubectl, Helm, Lens |
@@ -98,10 +89,3 @@ Slack and Chromium come from snap.
   reachable, including from the Mac host.
 - **Log** — `$HOME/ubuntu-bootstrap.log`, appended across runs. It holds the script's own
   progress lines, not apt or curl output.
-- **When it finishes** — log out and back in so the new `docker` group takes effect, then
-  start a fresh shell to pick up the aliases:
-
-  ```bash
-  exec bash -l
-  docker run --rm hello-world
-  ```

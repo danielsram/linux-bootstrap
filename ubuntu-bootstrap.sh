@@ -8,10 +8,6 @@ set -euo pipefail
 # Supported:
 # - Ubuntu ARM64
 # - Ubuntu AMD64
-#
-# Designed for:
-# - UTM Apple Silicon
-# - Framework / normal laptops
 #######################################
 
 
@@ -30,13 +26,20 @@ NODE_VERSION="lts/*"
 # FEATURE FLAGS
 #######################################
 
+INSTALL_UFW=true
+DOCKER_BIND_LOOPBACK=true
 INSTALL_AWS_CLI=true
 INSTALL_TERRAFORM=true
 INSTALL_GCLOUD=true
 INSTALL_CLAUDE_CODE=true
+INSTALL_NONO=true
+REMOVE_FIREFOX=true
+REMOVE_TELEMETRY=true
 INSTALL_LENS=true
 INSTALL_MONGODB_COMPASS=true
-INSTALL_NORDVPN=false
+INSTALL_INSOMNIA=true
+INSTALL_DELUGE=true
+INSTALL_PROTONVPN=true
 
 
 #######################################
@@ -74,6 +77,16 @@ apt_install() {
         sudo apt install -y "$PACKAGE"
     else
         log "$PACKAGE already installed"
+    fi
+}
+
+apt_purge() {
+    local PACKAGE="$1"
+
+    if dpkg -s "$PACKAGE" >/dev/null 2>&1; then
+        sudo apt purge -y "$PACKAGE"
+    else
+        log "$PACKAGE not installed"
     fi
 }
 
@@ -136,14 +149,41 @@ sudo apt install -y \
     software-properties-common \
     apt-transport-https \
     lsb-release \
+    xdg-utils \
     ubuntu-restricted-extras
 
 
 #######################################
-# SHELL ALIASES
+# FIREWALL
 #######################################
 
-log "Adding aliases"
+if [ "$INSTALL_UFW" = true ]; then
+
+log "Configuring firewall"
+
+apt_install ufw
+
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw logging low
+# --force skips the interactive "may disrupt existing ssh connections" prompt
+sudo ufw --force enable
+sudo ufw status verbose
+
+fi
+
+
+#######################################
+# SHELL CONFIG
+#######################################
+
+log "Adding shell config"
+
+append_if_missing \
+'export PATH="$HOME/.local/bin:$PATH"' \
+"$HOME/.bashrc"
+
+export PATH="$HOME/.local/bin:$PATH"
 
 append_if_missing \
 "alias k='kubectl'" \
@@ -157,6 +197,10 @@ append_if_missing \
 "alias t='terraform'" \
 "$HOME/.bashrc"
 
+append_if_missing \
+"alias nonoclaude='nono run --allow-cwd --read ~/.npm --read ~/.gradle --read ~/.m2 --profile claude-code -- claude'" \
+"$HOME/.bashrc"
+
 #######################################
 # NVM + NODE
 #######################################
@@ -165,7 +209,7 @@ log "Installing NVM"
 
 if [ ! -d "$HOME/.nvm" ]; then
 
-    curl -o- \
+    curl -f -o- \
     https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh \
     | bash
 
@@ -202,7 +246,7 @@ log "Installing SDKMAN"
 
 if [ ! -d "$HOME/.sdkman" ]; then
 
-    curl -s \
+    curl -fs \
     https://get.sdkman.io \
     | bash
 
@@ -210,6 +254,13 @@ fi
 
 
 export SDKMAN_DIR="$HOME/.sdkman"
+
+
+# SDKMAN is not written for `set -euo pipefail`: sdkman-init.sh reads unset
+# variables (ZSH_DISABLE_COMPFIX, SDKMAN_ENV, SDKMAN_OLD_PWD) under `set -u`,
+# and `sdk list | grep -q` can return 141 via SIGPIPE under pipefail. Relaxed
+# for the SDKMAN block, restored right after.
+set +euo pipefail
 
 source "$SDKMAN_DIR/bin/sdkman-init.sh"
 
@@ -244,6 +295,20 @@ if [ -n "$JAVA_VERSION" ]; then
 
 fi
 
+
+set -euo pipefail
+
+
+# errexit was off for the block above, so check the result explicitly.
+if [ -n "$JAVA_VERSION" ] && ! command_exists java; then
+
+    log "Java $JAVA_VERSION installation failed"
+
+    exit 1
+
+fi
+
+
 #######################################
 # DOCKER
 #######################################
@@ -276,6 +341,27 @@ if ! dpkg -s docker-compose-plugin >/dev/null 2>&1; then
 fi
 
 
+if [ "$DOCKER_BIND_LOOPBACK" = true ]; then
+
+# Docker publishes ports via its own iptables rules, ahead of ufw's chains,
+# so ufw cannot filter them. Binding to loopback by default closes that gap.
+# Override per container with an explicit -p 0.0.0.0:8080:80 when a service
+# genuinely needs to be reachable.
+if [ ! -f /etc/docker/daemon.json ]; then
+
+sudo install -m 0755 -d /etc/docker
+printf '{\n  "ip": "127.0.0.1"\n}\n' | sudo tee /etc/docker/daemon.json >/dev/null
+sudo systemctl restart docker
+
+else
+
+log "/etc/docker/daemon.json already exists — leaving it alone"
+
+fi
+
+fi
+
+
 
 #######################################
 # KUBECTL
@@ -287,22 +373,32 @@ log "Installing kubectl"
 if ! command_exists kubectl; then
 
 
-    KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+    KUBECTL_VERSION=$(curl -fsSL https://dl.k8s.io/release/stable.txt) || true
 
 
-    curl -LO \
-    "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
+    if [ -z "$KUBECTL_VERSION" ]; then
+
+        log "Could not resolve the stable kubectl version — skipping"
+
+    else
 
 
-    sudo install \
-        -o root \
-        -g root \
-        -m 0755 \
-        kubectl \
-        /usr/local/bin/kubectl
+        curl -fLO \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
 
 
-    rm kubectl
+        sudo install \
+            -o root \
+            -g root \
+            -m 0755 \
+            kubectl \
+            /usr/local/bin/kubectl
+
+
+        rm kubectl
+
+
+    fi
 
 
 else
@@ -322,7 +418,7 @@ log "Installing Helm"
 
 if ! command_exists helm; then
 
-    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+    curl -f https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
     | bash
 
 else
@@ -500,6 +596,54 @@ fi
 fi
 
 #######################################
+# NONO
+#######################################
+
+if [ "$INSTALL_NONO" = true ]; then
+
+log "Installing nono"
+
+if ! command_exists nono; then
+
+    NONO_TAG_URL=$(curl -sIL -o /dev/null -w '%{url_effective}' \
+    https://github.com/nolabs-ai/nono/releases/latest) || true
+
+    NONO_VERSION="${NONO_TAG_URL##*/v}"
+
+
+    if [ -z "$NONO_VERSION" ] || [ "$NONO_VERSION" = "$NONO_TAG_URL" ]; then
+
+        log "Could not resolve the latest nono version — skipping"
+
+    else
+
+
+        NONO_DEB="nono-cli_${NONO_VERSION}_${ARCH}.deb"
+
+
+        wget \
+        "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${NONO_DEB}" \
+        -O "$NONO_DEB"
+
+
+        sudo apt install -y "./${NONO_DEB}"
+
+
+        rm -f "$NONO_DEB"
+
+
+    fi
+
+
+else
+
+    log "nono already installed"
+
+fi
+
+fi
+
+#######################################
 # BRAVE BROWSER
 #######################################
 
@@ -532,6 +676,71 @@ else
 
 fi
 
+
+xdg-settings set default-web-browser brave-browser.desktop \
+|| log "Could not set Brave as the default browser"
+
+
+
+#######################################
+# CHROMIUM
+#######################################
+
+log "Installing Chromium"
+
+
+if ! snap list chromium >/dev/null 2>&1; then
+
+    sudo snap install chromium
+
+else
+
+    log "Chromium already installed"
+
+fi
+
+
+
+#######################################
+# FIREFOX
+#######################################
+
+if [ "$REMOVE_FIREFOX" = true ]; then
+
+
+log "Removing Firefox"
+
+
+if snap list firefox >/dev/null 2>&1; then
+
+    sudo snap remove firefox
+
+else
+
+    log "Firefox snap not installed"
+
+fi
+
+
+apt_purge firefox
+
+
+fi
+
+
+
+#######################################
+# TELEMETRY
+#######################################
+
+if [ "$REMOVE_TELEMETRY" = true ]; then
+
+log "Removing telemetry"
+
+apt_purge ubuntu-insights
+apt_purge ubuntu-report
+
+fi
 
 
 #######################################
@@ -583,7 +792,13 @@ fi
 log "Installing Slack"
 
 
-if ! snap list slack >/dev/null 2>&1; then
+# The slack snap is published for amd64 only — snapd refuses it on arm64 with
+# "not available on stable for this architecture". Use the web app there.
+if [ "$ARCH" != "amd64" ]; then
+
+    log "Slack has no ${ARCH} build — skipping"
+
+elif ! snap list slack >/dev/null 2>&1; then
 
     sudo snap install slack
 
@@ -605,47 +820,38 @@ if [ "$INSTALL_LENS" = true ]; then
 log "Installing Lens"
 
 
-if ! command_exists lens; then
+# Lens is amd64 only — their apt repo declares Architectures: amd64 and no
+# arm64 AppImage is published.
+if [ "$ARCH" != "amd64" ]; then
+
+    log "Lens has no ${ARCH} build — skipping"
+
+elif ! command_exists lens; then
 
 
-    case "$ARCH" in
-
-        arm64)
-            LENS_ARCH="arm64"
-            ;;
-
-        amd64)
-            LENS_ARCH="x64"
-            ;;
-
-    esac
+    sudo install -m 0755 -d /etc/apt/keyrings
 
 
-    LENS_URL=$(curl -s https://api.k8slens.dev/binaries/latest \
-    | grep -o "https[^\" ]*linux-${LENS_ARCH}[^\" ]*" \
-    | head -1)
+    curl -fsSL \
+    https://downloads.k8slens.dev/keys/gpg \
+    | sudo gpg \
+        --dearmor \
+        -o /etc/apt/keyrings/lens.gpg
 
 
-    if [ -n "$LENS_URL" ]; then
+
+    echo \
+"deb [arch=amd64 signed-by=/etc/apt/keyrings/lens.gpg] \
+https://downloads.k8slens.dev/apt/debian \
+stable main" \
+    | sudo tee \
+    /etc/apt/sources.list.d/lens.list
 
 
-        wget "$LENS_URL" \
-        -O lens.AppImage
 
+    sudo apt update
 
-        chmod +x lens.AppImage
-
-
-        sudo mv \
-        lens.AppImage \
-        /usr/local/bin/lens
-
-
-    else
-
-        log "Lens package not found for architecture ${ARCH}"
-
-    fi
+    sudo apt install -y lens
 
 
 else
@@ -668,51 +874,42 @@ if [ "$INSTALL_MONGODB_COMPASS" = true ]; then
 log "Installing MongoDB Compass"
 
 
-if ! command_exists mongodb-compass; then
+# MongoDB publishes Compass for linux/x64 only — the download centre manifest
+# lists no arm64 build.
+if [ "$ARCH" != "amd64" ]; then
+
+    log "MongoDB Compass has no ${ARCH} build — skipping"
+
+elif ! command_exists mongodb-compass; then
 
 
-    case "$ARCH" in
+    # The _latest_ filename does not exist — S3 reports the missing key as
+    # "AccessDenied" — so take the current versioned URL from the manifest.
+    # `|| true` keeps a no-match grep from killing the run under errexit.
+    MONGO_URL=$(curl -s https://s3.amazonaws.com/info-mongodb-com/com-download-center/compass.json \
+    | grep -o 'https://downloads\.mongodb\.com/compass/mongodb-compass_[0-9.]*_amd64\.deb' \
+    | head -1) || true
 
 
-        arm64)
+    if [ -z "$MONGO_URL" ]; then
 
-            MONGO_PACKAGE="mongodb-compass_latest_arm64.deb"
+        log "Could not resolve a MongoDB Compass download URL — skipping"
 
-            ;;
-
-
-        amd64)
-
-            MONGO_PACKAGE="mongodb-compass_latest_amd64.deb"
-
-            ;;
+    else
 
 
-    esac
-
-
-
-    wget \
-    "https://downloads.mongodb.com/compass/${MONGO_PACKAGE}" \
-    -O mongodb-compass.deb
-
-
-
-    if dpkg --info mongodb-compass.deb >/dev/null 2>&1; then
+        wget "$MONGO_URL" \
+        -O mongodb-compass.deb
 
 
         sudo apt install -y \
         ./mongodb-compass.deb
 
 
-    else
+        rm -f mongodb-compass.deb
 
-        log "MongoDB Compass package unavailable for ${ARCH}"
 
     fi
-
-
-    rm -f mongodb-compass.deb
 
 
 else
@@ -726,27 +923,94 @@ fi
 
 
 #######################################
-# NORDVPN
+# INSOMNIA
 #######################################
 
-if [ "$INSTALL_NORDVPN" = true ]; then
+if [ "$INSTALL_INSOMNIA" = true ]; then
 
 
-log "Installing NordVPN"
+log "Installing Insomnia"
 
 
-if ! command_exists nordvpn; then
+# The insomnia snap is published for amd64 only.
+if [ "$ARCH" != "amd64" ]; then
+
+    log "Insomnia has no ${ARCH} build — skipping"
+
+elif ! snap list insomnia >/dev/null 2>&1; then
+
+    sudo snap install insomnia
+
+else
+
+    log "Insomnia already installed"
+
+fi
+
+fi
 
 
-    sh <(
-        curl -sSf \
-        https://downloads.nordcdn.com/apps/linux/install.sh
-    )
+
+#######################################
+# DELUGE
+#######################################
+
+if [ "$INSTALL_DELUGE" = true ]; then
+
+
+log "Installing Deluge"
+
+
+# Architecture: all, so this works on arm64 too.
+apt_install deluge
+
+
+fi
+
+
+
+#######################################
+# PROTON VPN
+#######################################
+
+if [ "$INSTALL_PROTONVPN" = true ]; then
+
+
+log "Installing Proton VPN CLI"
+
+
+if ! dpkg -s proton-vpn-cli >/dev/null 2>&1; then
+
+
+    # Proton VPN is not in the Ubuntu archive — this release package adds their
+    # apt repo. Bump the version and checksum together from
+    # https://protonvpn.com/support/cli-debian-ubuntu when it goes stale.
+    PROTONVPN_RELEASE="protonvpn-stable-release_1.0.8_all.deb"
+    PROTONVPN_SHA256="0b14e71586b22e498eb20926c48c7b434b751149b1f2af9902ef1cfe6b03e180"
+
+
+    wget \
+    "https://repo.protonvpn.com/debian/dists/stable/main/binary-all/${PROTONVPN_RELEASE}" \
+    -O "$PROTONVPN_RELEASE"
+
+
+    echo "${PROTONVPN_SHA256}  ${PROTONVPN_RELEASE}" | sha256sum --check -
+
+
+    sudo dpkg -i "./${PROTONVPN_RELEASE}"
+
+
+    rm -f "$PROTONVPN_RELEASE"
+
+
+    sudo apt update
+
+    sudo apt install -y proton-vpn-cli
 
 
 else
 
-    log "NordVPN already installed"
+    log "Proton VPN CLI already installed"
 
 fi
 
