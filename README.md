@@ -32,6 +32,7 @@ INSTALL_LENS=true
 INSTALL_MONGODB_COMPASS=true
 INSTALL_INSOMNIA=true
 INSTALL_DELUGE=true
+INSTALL_VLC=true
 INSTALL_PROTONVPN=true
 ```
 
@@ -45,7 +46,7 @@ INSTALL_PROTONVPN=true
 | Containers / k8s | Docker + compose plugin, kubectl, Helm, Lens |
 | Cloud / IaC | AWS CLI v2, Terraform, Google Cloud CLI |
 | AI | Claude Code, nono (sandbox) |
-| Apps | Brave (default browser), Chromium, IntelliJ IDEA Ultimate, Sublime Text, Slack, MongoDB Compass, Insomnia, Deluge, Proton VPN CLI |
+| Apps | Brave (default browser), JetBrains Toolbox, Sublime Text, Slack, MongoDB Compass, Insomnia, Deluge, VLC, Proton VPN CLI |
 | Shell | `~/.local/bin` on `PATH`; `k` (kubectl), `g` (gcloud), `t` (terraform), `nonoclaude` aliases appended to `~/.bashrc` |
 
 ## Good to know
@@ -56,14 +57,13 @@ INSTALL_PROTONVPN=true
 - **A failure stops the run.** The script is linear under `set -euo pipefail`, so the
   first failing command ends it. Slack, Lens and Insomnia are amd64-only and skip
   themselves on arm64; anything else lacking a build for your architecture needs its flag
-  set to `false`, or its section deleted if it has no flag (Brave, IntelliJ, Sublime).
+  set to `false`, or its section deleted if it has no flag (Brave, JetBrains Toolbox, Sublime).
   Re-running is cheap: every section checks whether the tool is already there.
 - **Firefox is removed and Brave becomes the default.** Ubuntu's Firefox is a snap plus a
   small integration deb; `REMOVE_FIREFOX` drops both. The snap's profile survives as a
   snapshot — `snap saved` lists it, `snap restore` brings it back. A release upgrade can
   reinstall the deb, since `ubuntu-desktop` recommends it. The default is set with
-  `xdg-settings` and re-asserted on every run, so a manual change to Chromium gets reverted
-  next time.
+  `xdg-settings` and re-asserted on every run.
 - **Telemetry is removed.** `REMOVE_TELEMETRY` purges `ubuntu-insights` and `ubuntu-report`.
   ubuntu-insights is the active one — installing it enables user timers that collect monthly
   and upload weekly; ubuntu-report only fires when a report is already queued. Both are

@@ -39,6 +39,7 @@ INSTALL_LENS=true
 INSTALL_MONGODB_COMPASS=true
 INSTALL_INSOMNIA=true
 INSTALL_DELUGE=true
+INSTALL_VLC=true
 INSTALL_PROTONVPN=true
 
 
@@ -683,25 +684,6 @@ xdg-settings set default-web-browser brave-browser.desktop \
 
 
 #######################################
-# CHROMIUM
-#######################################
-
-log "Installing Chromium"
-
-
-if ! snap list chromium >/dev/null 2>&1; then
-
-    sudo snap install chromium
-
-else
-
-    log "Chromium already installed"
-
-fi
-
-
-
-#######################################
 # FIREFOX
 #######################################
 
@@ -744,23 +726,89 @@ fi
 
 
 #######################################
-# INTELLIJ IDEA ULTIMATE
+# JETBRAINS TOOLBOX
 #######################################
 
-log "Installing IntelliJ IDEA Ultimate"
+log "Installing JetBrains Toolbox"
 
 
-if ! snap list intellij-idea-ultimate >/dev/null 2>&1; then
+if ! command_exists jetbrains-toolbox; then
 
-    sudo snap install \
-    intellij-idea-ultimate \
-    --classic
+
+    # Prerequisites from
+    # https://www.jetbrains.com/help/idea/installation-guide.html#toolbox_linux
+    sudo apt install -y \
+    libxi6 \
+    libxrender1 \
+    libxtst6 \
+    mesa-utils \
+    libfontconfig \
+    libgtk-3-bin \
+    dbus-user-session \
+    libxcb-keysyms1
+
+
+    # amd64 is the bare .tar.gz, arm64 carries an -arm64 suffix — so the amd64
+    # pattern cannot match the arm64 URL.
+    case "$ARCH" in
+        amd64) TOOLBOX_SUFFIX="" ;;
+        arm64) TOOLBOX_SUFFIX="-arm64" ;;
+    esac
+
+
+    # Take the current URL from the releases API rather than pinning a version.
+    # `|| true` keeps a no-match grep from killing the run under errexit.
+    TOOLBOX_URL=$(curl -fsSL \
+    "https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release" \
+    | grep -o "https://download\.jetbrains\.com/toolbox/jetbrains-toolbox-[0-9.]*${TOOLBOX_SUFFIX}\.tar\.gz" \
+    | head -1) || true
+
+
+    if [ -z "$TOOLBOX_URL" ]; then
+
+        log "Could not resolve a JetBrains Toolbox download URL — skipping"
+
+    else
+
+
+        TOOLBOX_TAR=$(basename "$TOOLBOX_URL")
+
+
+        wget "$TOOLBOX_URL" -O "$TOOLBOX_TAR"
+
+
+        curl -fsSL "${TOOLBOX_URL}.sha256" | sha256sum --check -
+
+
+        # The tarball unpacks to jetbrains-toolbox-<version>/bin/jetbrains-toolbox.
+        # Toolbox relocates itself into ~/.local/share/JetBrains/Toolbox and writes
+        # its own desktop entry on first launch, so /opt only holds the launcher.
+        sudo rm -rf /opt/jetbrains-toolbox
+        sudo install -m 0755 -d /opt/jetbrains-toolbox
+
+        sudo tar -xzf "$TOOLBOX_TAR" \
+        -C /opt/jetbrains-toolbox \
+        --strip-components=1
+
+        sudo ln -sf \
+        /opt/jetbrains-toolbox/bin/jetbrains-toolbox \
+        /usr/local/bin/jetbrains-toolbox
+
+
+        rm -f "$TOOLBOX_TAR"
+
+
+    fi
+
 
 else
 
-    log "IntelliJ already installed"
+    log "JetBrains Toolbox already installed"
 
 fi
+
+
+log "Run jetbrains-toolbox and sign in to install IDEA Ultimate"
 
 
 
@@ -771,11 +819,27 @@ fi
 log "Installing Sublime Text"
 
 
-if ! snap list sublime-text >/dev/null 2>&1; then
+if ! command_exists subl; then
 
-    sudo snap install \
-    sublime-text \
-    --classic
+
+    # The key is ASCII-armored despite the .gpg name, so dearmor it.
+    curl -fsSL https://download.sublimetext.com/sublimehq-pub.gpg \
+    | sudo gpg --dearmor --yes -o /usr/share/keyrings/sublimehq-pub.gpg
+
+
+    # A flat repository — hence the trailing slash and no component. It carries
+    # arm64 as well as amd64, so no architecture guard is needed.
+    echo \
+"deb [signed-by=/usr/share/keyrings/sublimehq-pub.gpg] \
+https://download.sublimetext.com/ apt/stable/" \
+    | sudo tee \
+    /etc/apt/sources.list.d/sublime-text.list
+
+
+    sudo apt update
+
+    sudo apt install -y sublime-text
+
 
 else
 
@@ -792,15 +856,31 @@ fi
 log "Installing Slack"
 
 
-# The slack snap is published for amd64 only — snapd refuses it on arm64 with
-# "not available on stable for this architecture". Use the web app there.
+# Slack publishes amd64 only — the repo's binary-arm64 index is empty.
 if [ "$ARCH" != "amd64" ]; then
 
     log "Slack has no ${ARCH} build — skipping"
 
-elif ! snap list slack >/dev/null 2>&1; then
+elif ! command_exists slack; then
 
-    sudo snap install slack
+
+    curl -fsSL https://packagecloud.io/slacktechnologies/slack/gpgkey \
+    | sudo gpg --dearmor --yes -o /usr/share/keyrings/slack-archive-keyring.gpg
+
+
+    # jessie is not a mistake — packagecloud publishes a single suite under that
+    # name and Slack still pushes current builds to it.
+    echo \
+"deb [signed-by=/usr/share/keyrings/slack-archive-keyring.gpg] \
+https://packagecloud.io/slacktechnologies/slack/debian/ jessie main" \
+    | sudo tee \
+    /etc/apt/sources.list.d/slack.list
+
+
+    sudo apt update
+
+    sudo apt install -y slack-desktop
+
 
 else
 
@@ -932,14 +1012,33 @@ if [ "$INSTALL_INSOMNIA" = true ]; then
 log "Installing Insomnia"
 
 
-# The insomnia snap is published for amd64 only.
+# Kong publishes Insomnia for amd64 only — the repo declares Architectures: amd64 i386.
 if [ "$ARCH" != "amd64" ]; then
 
     log "Insomnia has no ${ARCH} build — skipping"
 
-elif ! snap list insomnia >/dev/null 2>&1; then
+elif ! command_exists insomnia; then
 
-    sudo snap install insomnia
+
+    curl -fsSL \
+    https://packages.konghq.com/public/insomnia/gpg.474B9148D779222B.key \
+    | sudo gpg --dearmor --yes -o /usr/share/keyrings/kong-insomnia-archive-keyring.gpg
+
+
+    # focal is load-bearing. Kong's endpoint answers 200 for any codename, but
+    # only focal actually carries packages — jammy, noble and questing return an
+    # empty index, so $(lsb_release -cs) would silently install nothing.
+    echo \
+"deb [signed-by=/usr/share/keyrings/kong-insomnia-archive-keyring.gpg] \
+https://packages.konghq.com/public/insomnia/deb/ubuntu focal main" \
+    | sudo tee \
+    /etc/apt/sources.list.d/insomnia.list
+
+
+    sudo apt update
+
+    sudo apt install -y insomnia
+
 
 else
 
@@ -963,6 +1062,22 @@ log "Installing Deluge"
 
 # Architecture: all, so this works on arm64 too.
 apt_install deluge
+
+
+fi
+
+
+
+#######################################
+# VLC
+#######################################
+
+if [ "$INSTALL_VLC" = true ]; then
+
+
+log "Installing VLC"
+
+apt_install vlc
 
 
 fi
@@ -1062,6 +1177,7 @@ echo "======================================"
 echo ""
 
 echo "IMPORTANT:"
+echo "- Run jetbrains-toolbox and sign in to install IDEA Ultimate"
 echo "- Logout/login for Docker permissions"
 echo "- Restart recommended"
 echo "- Review $LOG_FILE if something failed"
