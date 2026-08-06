@@ -49,7 +49,7 @@ INSTALL_PROTONVPN=true
 
 ARCH=$(dpkg --print-architecture)
 
-LOG_FILE="$HOME/ubuntu-bootstrap.log"
+LOG_FILE="$HOME/ubuntu.log"
 
 
 #######################################
@@ -136,8 +136,6 @@ echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select t
 | sudo debconf-set-selections
 
 
-# redis-cli ships in redis-tools — there is no package by that name, and the
-# redis metapackage would install and start the server as well.
 sudo apt install -y \
     curl \
     wget \

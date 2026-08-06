@@ -49,7 +49,7 @@ INSTALL_PROTONVPN=true
 
 ARCH=$(dpkg --print-architecture)
 
-LOG_FILE="$HOME/ubuntu-bootstrap.log"
+LOG_FILE="$HOME/debian.log"
 
 
 #######################################
