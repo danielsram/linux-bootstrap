@@ -39,7 +39,7 @@ INSTALL_PROTONVPN=true
 
 | Group | Tools |
 |---|---|
-| Base | curl, wget, redis-cli, zip/unzip, build-essential, ca-certificates, gnupg, software-properties-common, apt-transport-https, lsb-release, xdg-utils, ubuntu-restricted-extras |
+| Base | curl, wget, redis-tools, zip/unzip, build-essential, ca-certificates, gnupg, software-properties-common, apt-transport-https, lsb-release, xdg-utils, ubuntu-restricted-extras |
 | Firewall | ufw — deny all inbound, allow outbound, low logging |
 | Runtimes | Java via SDKMAN, Node via nvm |
 | Containers / k8s | Docker + compose plugin, kubectl, Helm, Lens |
@@ -47,10 +47,6 @@ INSTALL_PROTONVPN=true
 | AI | Claude Code, nono (sandbox) |
 | Apps | Brave (default browser), Chromium, IntelliJ IDEA Ultimate, Sublime Text, Slack, MongoDB Compass, Insomnia, Deluge, Proton VPN CLI |
 | Shell | `~/.local/bin` on `PATH`; `k` (kubectl), `g` (gcloud), `t` (terraform), `nonoclaude` aliases appended to `~/.bashrc` |
-
-redis-cli comes from the `redis-tools` package — there is no package by that name, and
-the `redis` metapackage would install and start the server too. IntelliJ, Sublime Text,
-Slack and Chromium come from snap.
 
 ## Good to know
 
