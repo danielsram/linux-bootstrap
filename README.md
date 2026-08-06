@@ -1,17 +1,42 @@
-# Ubuntu Bootstrap
+# Linux Bootstrap
 
-A single script that sets up a workstation on Ubuntu, on **arm64** and **amd64**. 
+Two scripts that set up the same workstation, one per distro, on **arm64** and **amd64**. 
 Any other architecture exits immediately.
-
-## Run
-
-```bash
-./ubuntu-bootstrap.sh
-```
 
 Run it as a **regular user, not under sudo** — nvm, SDKMAN and Claude Code install into `$HOME`, 
 the Claude Code installer refuses to run under sudo, 
 and the docker group would be granted to `root` instead of you.
+
+## Ubuntu
+
+```bash
+./ubuntu.sh
+```
+
+- Firefox is a snap plus a small integration deb, and `REMOVE_FIREFOX` drops both. The snap's
+  profile survives as a snapshot — `snap saved` lists it, `snap restore` brings it back. A
+  release upgrade can reinstall the deb, since `ubuntu-desktop` recommends it.
+- `REMOVE_TELEMETRY` purges `ubuntu-insights` and `ubuntu-report`. ubuntu-insights is the
+  active one — installing it enables user timers that collect monthly and upload weekly;
+  ubuntu-report only fires when a report is already queued. Both are `ubuntu-desktop`
+  recommends, so the desktop is unaffected, and a release upgrade can bring them back.
+- Base packages also include `software-properties-common` and `ubuntu-restricted-extras`.
+
+## Debian
+
+```bash
+./debian.sh
+```
+
+- Chromium is installed from Debian main — a real deb, not a snap. It also satisfies
+  `gnome-core`'s browser recommends, so apt stops trying to pull Firefox back.
+- `REMOVE_FIREFOX` purges `firefox-esr`.
+- `REMOVE_TELEMETRY` purges `popularity-contest`, Debian's analogue of the Ubuntu telemetry
+  packages.
+- `ubuntu-restricted-extras` does not exist, so only its codecs are installed, via
+  `libavcodec-extra` from main. No Microsoft core fonts and no `unrar` — those need contrib
+  and non-free, and the script leaves the system's apt sources alone.
+- No `software-properties-common` — Debian 13 dropped it from every component.
 
 ## Configure
 
@@ -40,13 +65,13 @@ INSTALL_PROTONVPN=true
 
 | Group | Tools |
 |---|---|
-| Base | curl, wget, redis-tools, zip/unzip, build-essential, ca-certificates, gnupg, software-properties-common, apt-transport-https, lsb-release, xdg-utils, ubuntu-restricted-extras |
+| Base | curl, wget, redis-tools, zip/unzip, build-essential, ca-certificates, gnupg, apt-transport-https, lsb-release, xdg-utils — plus the codecs and fonts named in the distro sections above |
 | Firewall | ufw — deny all inbound, allow outbound, low logging |
 | Runtimes | Java via SDKMAN, Node via nvm |
 | Containers / k8s | Docker + compose plugin, kubectl, Helm, Lens |
 | Cloud / IaC | AWS CLI v2, Terraform, Google Cloud CLI |
 | AI | Claude Code, nono (sandbox) |
-| Apps | Brave (default browser), JetBrains Toolbox, Sublime Text, Slack, MongoDB Compass, Insomnia, Deluge, VLC, Proton VPN CLI |
+| Apps | Brave (default browser), Chromium (Debian only), JetBrains Toolbox, Sublime Text, Slack, MongoDB Compass, Insomnia, Deluge, VLC, Proton VPN CLI |
 | Shell | `~/.local/bin` on `PATH`; `k` (kubectl), `g` (gcloud), `t` (terraform), `nonoclaude` aliases appended to `~/.bashrc` |
 
 ## Good to know
@@ -59,20 +84,12 @@ INSTALL_PROTONVPN=true
   themselves on arm64; anything else lacking a build for your architecture needs its flag
   set to `false`, or its section deleted if it has no flag (Brave, JetBrains Toolbox, Sublime).
   Re-running is cheap: every section checks whether the tool is already there.
-- **Firefox is removed and Brave becomes the default.** Ubuntu's Firefox is a snap plus a
-  small integration deb; `REMOVE_FIREFOX` drops both. The snap's profile survives as a
-  snapshot — `snap saved` lists it, `snap restore` brings it back. A release upgrade can
-  reinstall the deb, since `ubuntu-desktop` recommends it. The default is set with
-  `xdg-settings` and re-asserted on every run.
-- **Telemetry is removed.** `REMOVE_TELEMETRY` purges `ubuntu-insights` and `ubuntu-report`.
-  ubuntu-insights is the active one — installing it enables user timers that collect monthly
-  and upload weekly; ubuntu-report only fires when a report is already queued. Both are
-  `ubuntu-desktop` recommends, so the desktop is unaffected, and a release upgrade can bring
-  them back.
+- **Firefox is removed and Brave becomes the default.** What `REMOVE_FIREFOX` actually purges
+  differs per distro. The default is set with `xdg-settings` and re-asserted on every run.
 - **Docker bypasses the firewall.** Published ports write their own iptables rules ahead
   of ufw's chains, so ufw cannot filter them. `DOCKER_BIND_LOOPBACK` writes
   `{"ip": "127.0.0.1"}` to `/etc/docker/daemon.json` so published ports default to
   loopback. Publish explicitly — `-p 0.0.0.0:8080:80` — when a container really must be
   reachable, including from the Mac host.
-- **Log** — `$HOME/ubuntu-bootstrap.log`, appended across runs. It holds the script's own
-  progress lines, not apt or curl output.
+- **Log** — `$HOME/ubuntu.log` or `$HOME/debian.log`, appended across runs. It holds the
+  script's own progress lines, not apt or curl output.
