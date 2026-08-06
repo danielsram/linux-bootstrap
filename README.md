@@ -1,14 +1,10 @@
-# Ubuntu Developer Bootstrap
+# Ubuntu Bootstrap
 
-A single self-contained `bootstrap.sh` that sets up a developer workstation on
-Ubuntu 26.04 LTS (`resolute`), on both **arm64** (e.g. a UTM VM on an Apple
-Silicon Mac) and **amd64**.
+A single script that sets up a developer workstation on Ubuntu, on **arm64** and
+**amd64** — built for a UTM VM on Apple Silicon and for normal laptops. Any other
+architecture exits immediately.
 
-It is idempotent — re-running it is safe and already-completed steps are
-skipped. A step that fails does not abort the run: the error is logged and the
-step is listed under `FAILED` in the final summary.
-
-## First installation on a clean Ubuntu
+## Run it
 
 ```bash
 sudo apt update
@@ -17,107 +13,95 @@ sudo apt install -y git curl
 git clone https://github.com/danielsram/ubuntu-bootstrap.git
 cd ubuntu-bootstrap
 
-cp bootstrap.env.example bootstrap.env
-nano bootstrap.env          # at minimum GIT_NAME and GIT_EMAIL
+nano ubuntu-bootstrap.sh    # versions and feature flags are at the top
 
-./bootstrap.sh
+./ubuntu-bootstrap.sh
 ```
 
-Run it as your **regular user, not under sudo** — nvm, SDKMAN and Claude Code
-install into `$HOME`, and the Claude Code installer refuses to run under sudo.
-The script asks for sudo itself and keeps the ticket alive for the whole run.
+Run it as your **regular user, not under sudo** — nvm, SDKMAN and Claude Code install
+into `$HOME`, the Claude Code installer refuses to run under sudo, and the docker group
+would be granted to `root` instead of you.
 
-When it finishes, **log out and back in** (or reboot) so the new `docker` group
-membership takes effect, then start a fresh shell to pick up the aliases:
+## Configure
 
 ```bash
-exec bash -l
-docker run --rm hello-world
+JAVA_VERSION="25.0.2-open"   # SDKMAN identifier; empty = skip
+NODE_VERSION="lts/*"         # empty = skip
+
+INSTALL_UFW=true
+DOCKER_BIND_LOOPBACK=true
+INSTALL_AWS_CLI=true
+INSTALL_TERRAFORM=true
+INSTALL_GCLOUD=true
+INSTALL_CLAUDE_CODE=true
+INSTALL_NONO=true
+REMOVE_FIREFOX=true
+REMOVE_TELEMETRY=true
+INSTALL_LENS=true
+INSTALL_MONGODB_COMPASS=true
+INSTALL_INSOMNIA=true
+INSTALL_DELUGE=true
+INSTALL_PROTONVPN=true
 ```
-
-## Usage
-
-```bash
-./bootstrap.sh
-```
-
-There are no command-line options — the script takes no arguments. What runs is
-decided entirely by the `INSTALL_*` variables in `bootstrap.env`, and the install
-order is the sequence of `run` lines in `main()` at the bottom of the script.
-
-To retry after a failure: fix the cause and run it again. Everything already
-installed is skipped, so a re-run is cheap.
-
-## Configuration
-
-Everything is driven by variables. Defaults live in the `CONFIGURATION` block at
-the top of `bootstrap.sh`; `bootstrap.env` (git-ignored, copied from
-`bootstrap.env.example`) overrides them without editing the script.
-
-Version variables left empty are resolved at runtime rather than hardcoded —
-`KUBERNETES_MINOR` from `dl.k8s.io/release/stable.txt`, `YQ_VERSION` and
-`MONGODB_COMPASS_VERSION` from the GitHub API, the IntelliJ build from the
-JetBrains releases API.
 
 ## What it installs
 
 | Group | Tools |
 |---|---|
-| Base | build-essential, ca-certificates, curl, wget, gnupg, git, zip/unzip, apt-transport-https, software-properties-common, lsb-release |
-| CLI | jq, yq (mikefarah), htop, net-tools |
-| Runtimes | OpenJDK 25 via SDKMAN, Node LTS via nvm, Python 3 + pip + venv |
-| Containers / k8s | Docker CE + Compose + Buildx, kubectl, Helm, Lens |
-| Cloud / IaC | Terraform, AWS CLI v2, Google Cloud CLI |
-| AI | Claude Code (official installer) |
-| Apps | Brave, Google Chrome, Sublime Text, IntelliJ IDEA Ultimate, MongoDB Compass, Slack, Spotify, VLC, Zoom, Insomnia, Deluge, ProtonVPN, optionally NordVPN |
-| Shell | `k`/`g`/`t` aliases, kubectl + helm completion, nvm and SDKMAN init |
+| Base | curl, wget, redis-cli, zip/unzip, build-essential, ca-certificates, gnupg, software-properties-common, apt-transport-https, lsb-release, ubuntu-restricted-extras |
+| Firewall | ufw — deny all inbound, allow outbound, low logging |
+| Runtimes | Java via SDKMAN, Node via nvm |
+| Containers / k8s | Docker + compose plugin, kubectl, Helm, Lens |
+| Cloud / IaC | AWS CLI v2, Terraform, Google Cloud CLI |
+| AI | Claude Code, nono (sandbox) |
+| Apps | Brave (default browser), Chromium, IntelliJ IDEA Ultimate, Sublime Text, Slack, MongoDB Compass, Insomnia, Deluge, Proton VPN CLI |
+| Shell | `~/.local/bin` on `PATH`; `k` (kubectl), `g` (gcloud), `t` (terraform), `nonoclaude` aliases appended to `~/.bashrc` |
 
-The shell configuration goes into `~/.bashrc` inside a marked block:
+redis-cli comes from the `redis-tools` package — there is no package by that name, and
+the `redis` metapackage would install and start the server too. IntelliJ, Sublime Text,
+Slack and Chromium come from snap.
 
-```
-# >>> ubuntu-bootstrap >>>
-...
-# <<< ubuntu-bootstrap <<<
-```
+## Good to know
 
-A re-run replaces that block rather than appending a duplicate, so anything you
-write inside it is overwritten.
+- **Check the clock before running.** A guest clock behind real time makes apt reject
+  freshly published repository metadata — `Release file ... is not valid yet` — which
+  reads as a broken repo rather than a clock problem. UTM guests drift whenever the host
+  sleeps. If `timedatectl` won't sync (NTP needs UDP 123, which some VM networks drop),
+  take the time from an HTTPS response instead:
 
-## ARM64 caveats
+  ```bash
+  sudo timedatectl set-ntp false
+  sudo date -s "$(curl -sI https://google.com | grep -i '^date:' | sed 's/^[Dd]ate: //')"
+  sudo hwclock --systohc
+  ```
 
-These have **no official ARM64 Linux build**: Google Chrome, Slack, Spotify,
-Zoom, Insomnia, ProtonVPN. The script attempts them anyway and reports the real
-apt/dpkg error under `FAILED`. On an arm64 machine set the corresponding
-`INSTALL_*` variables to `false` in `bootstrap.env` to keep the output clean.
+- **A failure stops the run.** The script is linear under `set -euo pipefail`, so the
+  first failing command ends it. Slack, Lens and Insomnia are amd64-only and skip
+  themselves on arm64; anything else lacking a build for your architecture needs its flag
+  set to `false`, or its section deleted if it has no flag (Brave, IntelliJ, Sublime).
+  Re-running is cheap: every section checks whether the tool is already there.
+- **Firefox is removed and Brave becomes the default.** Ubuntu's Firefox is a snap plus a
+  small integration deb; `REMOVE_FIREFOX` drops both. The snap's profile survives as a
+  snapshot — `snap saved` lists it, `snap restore` brings it back. A release upgrade can
+  reinstall the deb, since `ubuntu-desktop` recommends it. The default is set with
+  `xdg-settings` and re-asserted on every run, so a manual change to Chromium gets reverted
+  next time.
+- **Telemetry is removed.** `REMOVE_TELEMETRY` purges `ubuntu-insights` and `ubuntu-report`.
+  ubuntu-insights is the active one — installing it enables user timers that collect monthly
+  and upload weekly; ubuntu-report only fires when a report is already queued. Both are
+  `ubuntu-desktop` recommends, so the desktop is unaffected, and a release upgrade can bring
+  them back.
+- **Docker bypasses the firewall.** Published ports write their own iptables rules ahead
+  of ufw's chains, so ufw cannot filter them. `DOCKER_BIND_LOOPBACK` writes
+  `{"ip": "127.0.0.1"}` to `/etc/docker/daemon.json` so published ports default to
+  loopback. Publish explicitly — `-p 0.0.0.0:8080:80` — when a container really must be
+  reachable, including from the Mac host.
+- **Log** — `$HOME/ubuntu-bootstrap.log`, appended across runs. It holds the script's own
+  progress lines, not apt or curl output.
+- **When it finishes** — log out and back in so the new `docker` group takes effect, then
+  start a fresh shell to pick up the aliases:
 
-IntelliJ IDEA, Brave, Sublime Text, Docker, kubectl, Helm, Terraform, AWS CLI,
-Google Cloud CLI and Claude Code all work on arm64.
-
-## Notes on install methods
-
-A few choices are deliberate:
-
-- **yq** — the Ubuntu package named `yq` is a different tool, so mikefarah/yq is
-  installed as a binary from GitHub releases into `/usr/local/bin`.
-- **Slack and Spotify** — via snap. Slack's `.deb` URL embeds a version that
-  cannot be resolved reliably, and Spotify's apt repo key filename embeds a
-  fingerprint that gets rotated and silently breaks apt.
-- **IntelliJ IDEA** — the official tarball (arch-aware, sha256-verified) is
-  extracted to `/opt/intellij-idea-<build>`, with a stable
-  `/opt/intellij-idea-ultimate` symlink, an `/usr/local/bin/idea` launcher and a
-  `.desktop` entry. The snap is amd64 only.
-- **Java** — SDKMAN identifiers are always full versions like `25.0.1-open`;
-  there is no bare-major form, so no such string appears in the config. Set
-  `JAVA_MAJOR` and `JAVA_VENDOR` and the script picks the newest matching
-  identifier from `sdk list java`, reporting the available versions if none
-  matches. `JAVA_VERSION` pins one exact identifier and skips the lookup.
-- **Third-party apt suites** — Docker and HashiCorp key their repos by Ubuntu
-  codename. The script probes `dists/<codename>/Release` and falls back through
-  `questing → noble → jammy`, so it keeps working on a release that lands in
-  those repos late.
-
-## Log
-
-Everything, including apt and curl output, is teed to
-`$HOME/bootstrap-<timestamp>.log` (override with `LOG_FILE`). It contains ANSI
-color sequences — read it with `less -R`.
+  ```bash
+  exec bash -l
+  docker run --rm hello-world
+  ```
