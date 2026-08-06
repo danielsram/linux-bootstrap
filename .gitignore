@@ -1,1 +1,8 @@
-ubuntu-bootstrap.log
+.DS_Store
+.idea/
+*.deb
+*.zip
+*.tar.gz
+/aws/
+/kubectl
+*.log
