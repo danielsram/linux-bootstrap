@@ -52,16 +52,7 @@ INSTALL_PROTONVPN=true
 
 - **Check the clock before running.** A guest clock behind real time makes apt reject
   freshly published repository metadata — `Release file ... is not valid yet` — which
-  reads as a broken repo rather than a clock problem. UTM guests drift whenever the host
-  sleeps. If `timedatectl` won't sync (NTP needs UDP 123, which some VM networks drop),
-  take the time from an HTTPS response instead:
-
-  ```bash
-  sudo timedatectl set-ntp false
-  sudo date -s "$(curl -sI https://google.com | grep -i '^date:' | sed 's/^[Dd]ate: //')"
-  sudo hwclock --systohc
-  ```
-
+  reads as a broken repo rather than a clock problem.
 - **A failure stops the run.** The script is linear under `set -euo pipefail`, so the
   first failing command ends it. Slack, Lens and Insomnia are amd64-only and skip
   themselves on arm64; anything else lacking a build for your architecture needs its flag
