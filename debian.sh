@@ -203,7 +203,7 @@ append_if_missing \
 "$HOME/.bashrc"
 
 append_if_missing \
-"alias nonoclaude='nono run --allow-cwd --read ~/.npm --read ~/.gradle --read ~/.m2 --profile claude-code -- claude'" \
+"alias nonoclaude='nono run --allow-cwd  --read ~/.sdkman --read ~/.npm --read ~/.gradle --write ~/.gradle --read ~/.m2 --profile claude-code -- claude'" \
 "$HOME/.bashrc"
 
 #######################################
@@ -729,6 +729,21 @@ fi
 
 
 #######################################
+# GNOME APPS
+#######################################
+
+log "Removing GNOME apps"
+
+apt_purge gnome-tour
+apt_purge gnome-maps
+apt_purge gnome-calendar
+apt_purge gnome-contacts
+apt_purge totem
+apt_purge showtime
+apt_purge gnome-music
+
+
+#######################################
 # JETBRAINS TOOLBOX
 #######################################
 
@@ -1095,15 +1110,15 @@ fi
 if [ "$INSTALL_PROTONVPN" = true ]; then
 
 
-log "Installing Proton VPN CLI"
+log "Installing Proton VPN"
 
 
-if ! dpkg -s proton-vpn-cli >/dev/null 2>&1; then
+if ! dpkg -s proton-vpn-gnome-desktop >/dev/null 2>&1; then
 
 
     # Proton VPN is not in the Debian archive — this release package adds their
     # apt repo. Bump the version and checksum together from
-    # https://protonvpn.com/support/cli-debian-ubuntu when it goes stale.
+    # https://protonvpn.com/support/linux-vpn-debian-ubuntu when it goes stale.
     PROTONVPN_RELEASE="protonvpn-stable-release_1.0.8_all.deb"
     PROTONVPN_SHA256="0b14e71586b22e498eb20926c48c7b434b751149b1f2af9902ef1cfe6b03e180"
 
@@ -1124,14 +1139,21 @@ if ! dpkg -s proton-vpn-cli >/dev/null 2>&1; then
 
     sudo apt update
 
-    sudo apt install -y proton-vpn-cli
+    sudo apt install -y proton-vpn-gnome-desktop
 
 
 else
 
-    log "Proton VPN CLI already installed"
+    log "Proton VPN already installed"
 
 fi
+
+
+# System tray support for the GUI, per the Proton VPN docs. Debian ships the extension
+# disabled — enable it once in the Extensions app and re-login for the tray icon.
+apt_install gnome-shell-extension-appindicator
+apt_install gnome-shell-extension-prefs
+
 
 fi
 

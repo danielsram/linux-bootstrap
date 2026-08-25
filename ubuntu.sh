@@ -1089,15 +1089,15 @@ fi
 if [ "$INSTALL_PROTONVPN" = true ]; then
 
 
-log "Installing Proton VPN CLI"
+log "Installing Proton VPN"
 
 
-if ! dpkg -s proton-vpn-cli >/dev/null 2>&1; then
+if ! dpkg -s proton-vpn-gnome-desktop >/dev/null 2>&1; then
 
 
     # Proton VPN is not in the Ubuntu archive — this release package adds their
     # apt repo. Bump the version and checksum together from
-    # https://protonvpn.com/support/cli-debian-ubuntu when it goes stale.
+    # https://protonvpn.com/support/linux-vpn-debian-ubuntu when it goes stale.
     PROTONVPN_RELEASE="protonvpn-stable-release_1.0.8_all.deb"
     PROTONVPN_SHA256="0b14e71586b22e498eb20926c48c7b434b751149b1f2af9902ef1cfe6b03e180"
 
@@ -1118,14 +1118,19 @@ if ! dpkg -s proton-vpn-cli >/dev/null 2>&1; then
 
     sudo apt update
 
-    sudo apt install -y proton-vpn-cli
+    sudo apt install -y proton-vpn-gnome-desktop
 
 
 else
 
-    log "Proton VPN CLI already installed"
+    log "Proton VPN already installed"
 
 fi
+
+
+apt_install gnome-shell-extension-appindicator
+apt_install gnome-shell-extension-prefs
+
 
 fi
 

@@ -71,7 +71,7 @@ INSTALL_PROTONVPN=true
 | Containers / k8s | Docker + compose plugin, kubectl, Helm, Lens |
 | Cloud / IaC | AWS CLI v2, Terraform, Google Cloud CLI |
 | AI | Claude Code, nono (sandbox) |
-| Apps | Brave (default browser), Chromium (Debian only), JetBrains Toolbox, Sublime Text, Slack, MongoDB Compass, Insomnia, Deluge, VLC, Proton VPN CLI |
+| Apps | Brave (default browser), Chromium (Debian only), JetBrains Toolbox, Sublime Text, Slack, MongoDB Compass, Insomnia, Deluge, VLC, Proton VPN |
 | Shell | `~/.local/bin` on `PATH`; `k` (kubectl), `g` (gcloud), `t` (terraform), `nonoclaude` aliases appended to `~/.bashrc` |
 
 ## Good to know
@@ -91,5 +91,8 @@ INSTALL_PROTONVPN=true
   `{"ip": "127.0.0.1"}` to `/etc/docker/daemon.json` so published ports default to
   loopback. Publish explicitly — `-p 0.0.0.0:8080:80` — when a container really must be
   reachable, including from the Mac host.
+- **Proton VPN's tray icon needs a GNOME extension.** The script installs
+  `gnome-shell-extension-appindicator`. Ubuntu enables it by default; on Debian enable it once
+  in the Extensions app and log back in, otherwise the app runs without a tray icon.
 - **Log** — `$HOME/ubuntu.log` or `$HOME/debian.log`, appended across runs. It holds the
   script's own progress lines, not apt or curl output.
