@@ -203,7 +203,7 @@ append_if_missing \
 "$HOME/.bashrc"
 
 append_if_missing \
-"alias nonoclaude='nono run --allow-cwd  --read ~/.sdkman --read ~/.npm --read ~/.gradle --write ~/.gradle --read ~/.m2 --profile claude-code -- claude'" \
+"alias nonoclaude='nono run --allow-cwd  --read ~/.sdkman --read ~/.npm --read ~/.gradle --write ~/.gradle --read ~/.m2  --read ~/.embedmongo --profile claude-code -- claude'" \
 "$HOME/.bashrc"
 
 #######################################
