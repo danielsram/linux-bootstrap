@@ -6,8 +6,13 @@ set -euo pipefail
 # Debian Bootstrap
 #
 # Supported:
-# - Debian 13 (trixie) with GNOME, ARM64
-# - Debian 13 (trixie) with GNOME, AMD64
+# - Debian 13 (trixie) with GNOME, arm64
+# - Debian 13 (trixie) with GNOME, amd64
+#
+# amd64 is Debian's name for x86-64 and covers Intel and AMD alike — an Intel
+# laptop is an amd64 machine here. The work that genuinely differs per CPU
+# vendor (microcode, iGPU firmware, VA-API driver) is picked at runtime in
+# HARDWARE ENABLEMENT.
 #######################################
 
 
@@ -26,6 +31,7 @@ NODE_VERSION="lts/*"
 # FEATURE FLAGS
 #######################################
 
+INSTALL_HARDWARE_ENABLEMENT=true
 INSTALL_UFW=true
 DOCKER_BIND_LOOPBACK=true
 INSTALL_AWS_CLI=true
@@ -48,6 +54,9 @@ INSTALL_PROTONVPN=true
 #######################################
 
 ARCH=$(dpkg --print-architecture)
+
+# Empty on arm64 — only x86-64 carries vendor_id in /proc/cpuinfo.
+CPU_VENDOR=$(awk -F': ' '/^vendor_id/ {print $2; exit}' /proc/cpuinfo 2>/dev/null || true)
 
 LOG_FILE="$HOME/debian.log"
 
@@ -91,6 +100,14 @@ apt_purge() {
     fi
 }
 
+# Prints the installable version of a package, or nothing. Empty output means apt
+# has never heard of the name; "(none)" means it is indexed but unreachable —
+# usually the non-free-firmware component missing from the apt sources.
+apt_candidate() {
+    apt-cache policy "$1" 2>/dev/null \
+    | awk -F': ' '/^[[:space:]]*Candidate:/ {print $2; exit}' || true
+}
+
 #######################################
 # SYSTEM CHECK
 #######################################
@@ -111,11 +128,12 @@ log "Detected architecture: $ARCH"
 case "$ARCH" in
 
     arm64)
-        log "Running ARM64 setup"
+        log "Running arm64 setup"
         ;;
 
     amd64)
-        log "Running AMD64 setup"
+        # Intel and AMD are both amd64 — the vendor split happens later.
+        log "Running amd64 (x86-64) setup — CPU vendor: ${CPU_VENDOR:-unknown}"
         ;;
 
     *)
@@ -156,6 +174,159 @@ sudo apt install -y \
     lsb-release \
     xdg-utils \
     libavcodec-extra
+
+
+#######################################
+# HARDWARE ENABLEMENT
+#######################################
+
+if [ "$INSTALL_HARDWARE_ENABLEMENT" = true ]; then
+
+log "Configuring hardware enablement"
+
+
+# Microcode and firmware are for bare metal only. Inside a guest the kernel
+# disables the microcode loader as soon as it sees the CPUID hypervisor bit, so
+# installing it rebuilds the initramfs, changes nothing, and leaves you believing
+# you are patched when the host actually owns microcode. The firmware packages
+# have no matching devices there either. systemd-detect-virt prints the
+# technology and exits 0 under virtualisation, prints "none" and exits 1 on bare
+# metal — so it is used as a condition and never assigned, since an assignment
+# would abort under `set -e` on exactly the machines this section exists for.
+if [ "$ARCH" != "amd64" ]; then
+
+    log "Hardware enablement is x86-64 only — skipping on ${ARCH}"
+
+elif systemd-detect-virt --quiet; then
+
+    log "Virtualised guest ($(systemd-detect-virt)) — skipping hardware enablement"
+
+else
+
+    # Radio and audio firmware does not track the CPU vendor: Intel Wi-Fi is
+    # common in AMD laptops, and the Cirrus CS35L41 speaker amps that need
+    # firmware-cirrus ship in both. Only microcode, iGPU firmware and the VA-API
+    # driver follow the CPU vendor, so everything else stays in the shared set.
+    # firmware-sof-signed is the SOF audio DSP — sound does not work at all on
+    # most Intel laptops from ~2019 without it. firmware-intel-sound is not a
+    # substitute; it covers the pre-SOF Baytrail era.
+    HW_PACKAGES=(
+        firmware-iwlwifi
+        firmware-realtek
+        firmware-mediatek
+        firmware-atheros
+        firmware-cirrus
+        firmware-sof-signed
+        firmware-misc-nonfree
+        vainfo
+        lm-sensors
+    )
+
+    case "$CPU_VENDOR" in
+
+        GenuineIntel)
+            log "Intel CPU detected — adding Intel microcode, GPU firmware and VA-API"
+            # firmware-intel-graphics is new in trixie: the i915/xe GuC and HuC
+            # blobs were split out of firmware-misc-nonfree, so the catch-all no
+            # longer covers them. intel-media-va-driver is the main-component iHD
+            # build for Broadwell and newer, i965-va-driver the older generations.
+            # intel-media-va-driver-non-free is deliberately not used — it lives
+            # in non-free, which trixie does not enable by default, and it
+            # conflicts with the build above.
+            HW_PACKAGES+=(
+                intel-microcode
+                firmware-intel-graphics
+                intel-media-va-driver
+                i965-va-driver
+            )
+            ;;
+
+        AuthenticAMD)
+            log "AMD CPU detected — adding AMD microcode, GPU firmware and VA-API"
+            # firmware-amd-graphics is not optional on an AMD iGPU — amdgpu will
+            # not initialise without it.
+            HW_PACKAGES+=(
+                amd64-microcode
+                firmware-amd-graphics
+                mesa-va-drivers
+            )
+            ;;
+
+        *)
+            log "Unrecognised CPU vendor '${CPU_VENDOR:-unknown}' — installing the vendor-neutral set only"
+            ;;
+
+    esac
+
+
+    # Every microcode and firmware package above lives in non-free-firmware. The
+    # Debian installer enables that component only when it installed non-free
+    # firmware during setup — all but certain on a real laptop, not guaranteed.
+    # This script leaves the apt sources alone, so anything unreachable is
+    # reported and dropped rather than failing the run.
+    HW_AVAILABLE=()
+    HW_MISSING=()
+
+    for HW_PACKAGE in "${HW_PACKAGES[@]}"; do
+
+        HW_CANDIDATE=$(apt_candidate "$HW_PACKAGE")
+
+        if [ -n "$HW_CANDIDATE" ] && [ "$HW_CANDIDATE" != "(none)" ]; then
+            HW_AVAILABLE+=("$HW_PACKAGE")
+        else
+            HW_MISSING+=("$HW_PACKAGE")
+        fi
+
+    done
+
+    if [ ${#HW_MISSING[@]} -gt 0 ]; then
+
+        log "No installable version of: ${HW_MISSING[*]}"
+        # trixie writes deb822, so the components live in debian.sources, not in
+        # the old one-line /etc/apt/sources.list.
+        log "Add non-free-firmware to the Components: line of /etc/apt/sources.list.d/debian.sources, run sudo apt update, then re-run this script"
+
+    fi
+
+    if [ ${#HW_AVAILABLE[@]} -gt 0 ]; then
+
+        # One apt call rather than the per-package apt_install helper: apt is
+        # idempotent here, and dpkg -s reports success for a package left in
+        # config-files state, which would skip a genuinely missing install.
+        sudo apt install -y "${HW_AVAILABLE[@]}"
+
+    fi
+
+
+    # lm-sensors is installed but sensors-detect is deliberately not run — its own
+    # man page warns that --auto "isn't necessarily safe as the internal logic may
+    # lead to potentially dangerous probes being attempted", up to SMBus lockup.
+    # CPU temperature does not need it: coretemp and k10temp both autoload from
+    # the CPU and PCI modalias. Run sensors-detect by hand if you want the
+    # Super-I/O fan and voltage chips as well.
+
+
+    # GNOME's power manager arrives through gnome-control-center's Recommends, so
+    # it is asserted rather than installed. tlp declares
+    # Conflicts: power-profiles-daemon, so installing tlp removes it and takes the
+    # power mode selector out of GNOME Settings — hence the warning instead.
+    if dpkg -s tlp >/dev/null 2>&1; then
+
+        log "WARNING: tlp is installed and conflicts with power-profiles-daemon — GNOME's power mode selector will be missing"
+
+    elif systemctl is-active --quiet power-profiles-daemon; then
+
+        log "power-profiles-daemon is active"
+
+    else
+
+        log "WARNING: power-profiles-daemon is not active — GNOME power profiles unavailable"
+
+    fi
+
+fi
+
+fi
 
 
 #######################################
@@ -1195,6 +1366,10 @@ command_exists claude && claude --version || true
 
 command_exists redis-cli && redis-cli --version || true
 
+command_exists vainfo && vainfo 2>/dev/null | grep -i 'driver version' || true
+
+command_exists sensors && sensors || true
+
 
 echo ""
 echo "======================================"
@@ -1205,6 +1380,8 @@ echo ""
 echo "IMPORTANT:"
 echo "- Run jetbrains-toolbox and sign in to install IDEA Ultimate"
 echo "- Logout/login for Docker permissions"
-echo "- Restart recommended"
+echo "- Restart required if microcode or firmware was installed — both load at boot"
+echo "- trixie pins firmware-nonfree at its release snapshot; very new hardware may"
+echo "  need the newer build in trixie-backports, which this script does not add"
 echo "- Review $LOG_FILE if something failed"
 echo ""

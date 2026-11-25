@@ -6,8 +6,12 @@ set -euo pipefail
 # Ubuntu Bootstrap
 #
 # Supported:
-# - Ubuntu ARM64
-# - Ubuntu AMD64
+# - Ubuntu arm64
+# - Ubuntu amd64
+#
+# amd64 is the distro's name for x86-64 and covers Intel and AMD alike — an Intel
+# laptop is an amd64 machine here. The work that genuinely differs per CPU vendor
+# is picked at runtime in HARDWARE ENABLEMENT.
 #######################################
 
 
@@ -26,6 +30,7 @@ NODE_VERSION="lts/*"
 # FEATURE FLAGS
 #######################################
 
+INSTALL_HARDWARE_ENABLEMENT=true
 INSTALL_UFW=true
 DOCKER_BIND_LOOPBACK=true
 INSTALL_AWS_CLI=true
@@ -48,6 +53,9 @@ INSTALL_PROTONVPN=true
 #######################################
 
 ARCH=$(dpkg --print-architecture)
+
+# Empty on arm64 — only x86-64 carries vendor_id in /proc/cpuinfo.
+CPU_VENDOR=$(awk -F': ' '/^vendor_id/ {print $2; exit}' /proc/cpuinfo 2>/dev/null || true)
 
 LOG_FILE="$HOME/ubuntu.log"
 
@@ -100,11 +108,12 @@ log "Detected architecture: $ARCH"
 case "$ARCH" in
 
     arm64)
-        log "Running ARM64 setup"
+        log "Running arm64 setup"
         ;;
 
     amd64)
-        log "Running AMD64 setup"
+        # Intel and AMD are both amd64 — the vendor split happens later.
+        log "Running amd64 (x86-64) setup — CPU vendor: ${CPU_VENDOR:-unknown}"
         ;;
 
     *)
@@ -150,6 +159,114 @@ sudo apt install -y \
     lsb-release \
     xdg-utils \
     ubuntu-restricted-extras
+
+
+#######################################
+# HARDWARE ENABLEMENT
+#######################################
+
+if [ "$INSTALL_HARDWARE_ENABLEMENT" = true ]; then
+
+log "Configuring hardware enablement"
+
+
+# Microcode and firmware are for bare metal only. Inside a guest the kernel
+# disables the microcode loader as soon as it sees the CPUID hypervisor bit, and
+# the VA-API drivers have no Intel or AMD render device to bind to.
+# systemd-detect-virt prints the technology and exits 0 under virtualisation,
+# prints "none" and exits 1 on bare metal — so it is used as a condition and
+# never assigned, since an assignment would abort under `set -e` on exactly the
+# machines this section exists for.
+if [ "$ARCH" != "amd64" ]; then
+
+    log "Hardware enablement is x86-64 only — skipping on ${ARCH}"
+
+elif systemd-detect-virt --quiet; then
+
+    log "Virtualised guest ($(systemd-detect-virt)) — skipping hardware enablement"
+
+else
+
+    # Ubuntu needs no microcode or firmware lines: linux-image-generic depends on
+    # intel-microcode, amd64-microcode and linux-firmware, and linux-firmware
+    # recommends firmware-sof-signed, so a stock desktop already has all of them.
+    # They are asserted instead — a "not-installed" here means the kernel
+    # meta-package was bypassed, which is worth seeing in the log. Debian has no
+    # such dependency, which is why debian.sh installs the whole set by hand.
+    log "Firmware and microcode status:"
+
+    dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' \
+    intel-microcode amd64-microcode linux-firmware firmware-sof-signed 2>&1 \
+    | tee -a "$LOG_FILE" || true
+
+
+    HW_PACKAGES=(
+        vainfo
+        lm-sensors
+    )
+
+    case "$CPU_VENDOR" in
+
+        GenuineIntel)
+            log "Intel CPU detected — adding Intel VA-API"
+            # intel-media-va-driver is the iHD build for Broadwell and newer,
+            # i965-va-driver the older generations. The -non-free iHD build is
+            # deliberately not used: it conflicts with the one above.
+            HW_PACKAGES+=(
+                intel-media-va-driver
+                i965-va-driver
+            )
+            ;;
+
+        AuthenticAMD)
+            log "AMD CPU detected — adding AMD VA-API"
+            # On 26.04 mesa-va-drivers is a virtual package provided by
+            # mesa-libgallium. apt resolves it through Provides; dpkg -s cannot
+            # see it, which is one reason this section calls apt directly rather
+            # than going through the apt_install helper.
+            HW_PACKAGES+=(
+                mesa-va-drivers
+            )
+            ;;
+
+        *)
+            log "Unrecognised CPU vendor '${CPU_VENDOR:-unknown}' — installing the vendor-neutral set only"
+            ;;
+
+    esac
+
+
+    sudo apt install -y "${HW_PACKAGES[@]}"
+
+
+    # lm-sensors is installed but sensors-detect is deliberately not run — its own
+    # man page warns that --auto "isn't necessarily safe as the internal logic may
+    # lead to potentially dangerous probes being attempted", up to SMBus lockup.
+    # CPU temperature does not need it: coretemp and k10temp both autoload from
+    # the CPU and PCI modalias.
+
+
+    # GNOME's power manager arrives through gnome-control-center's Recommends, so
+    # it is asserted rather than installed. tlp declares
+    # Conflicts: power-profiles-daemon, so installing tlp removes it and takes the
+    # power mode selector out of GNOME Settings — hence the warning instead.
+    if dpkg -s tlp >/dev/null 2>&1; then
+
+        log "WARNING: tlp is installed and conflicts with power-profiles-daemon — GNOME's power mode selector will be missing"
+
+    elif systemctl is-active --quiet power-profiles-daemon; then
+
+        log "power-profiles-daemon is active"
+
+    else
+
+        log "WARNING: power-profiles-daemon is not active — GNOME power profiles unavailable"
+
+    fi
+
+fi
+
+fi
 
 
 #######################################
@@ -1172,6 +1289,10 @@ command_exists claude && claude --version || true
 
 command_exists redis-cli && redis-cli --version || true
 
+command_exists vainfo && vainfo 2>/dev/null | grep -i 'driver version' || true
+
+command_exists sensors && sensors || true
+
 
 echo ""
 echo "======================================"
@@ -1182,6 +1303,6 @@ echo ""
 echo "IMPORTANT:"
 echo "- Run jetbrains-toolbox and sign in to install IDEA Ultimate"
 echo "- Logout/login for Docker permissions"
-echo "- Restart recommended"
+echo "- Restart required if microcode or firmware was installed — both load at boot"
 echo "- Review $LOG_FILE if something failed"
 echo ""
