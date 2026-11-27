@@ -26,10 +26,15 @@ sudo dnf upgrade --refresh -y
 
 
 #######################################
-# redis-cli
+# SYSTEM MONITORING
 #######################################
 
-sudo dnf install -y valkey-compat-redis
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo \
+  && flatpak install -y flathub io.missioncenter.MissionCenter
+
+sudo dnf install -y libgtop2-devel lm_sensors \
+  && gdbus call --session --dest org.gnome.Shell.Extensions --object-path /org/gnome/Shell/Extensions --method org.gnome.Shell.Extensions.InstallRemoteExtension "Vitals@CoreCoding.com"
+
 
 #######################################
 # FIREWALL
@@ -41,6 +46,14 @@ sudo dnf install -y firewalld \
   && sudo firewall-cmd --permanent --zone=public --remove-service=ssh \
   && sudo firewall-cmd --reload \
   && sudo firewall-cmd --list-all
+
+
+#######################################
+# redis-cli
+#######################################
+
+sudo dnf install -y valkey-compat-redis
+
 
 #######################################
 # NVM + NODE
