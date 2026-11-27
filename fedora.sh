@@ -95,6 +95,9 @@ KUBECTL_URL="https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/st
   && sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
   rm -f kubectl
 
+# bash completion
+kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl > /dev/null
+
 
 #######################################
 # K9S
