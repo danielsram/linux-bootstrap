@@ -19,6 +19,13 @@ sudo dnf remove -y firefox
 
 
 #######################################
+# DISABLE DNF COUNT-ME
+#######################################
+
+sudo dnf config-manager setopt "*.countme=0"
+
+
+#######################################
 # SYSTEM UPDATE
 #######################################
 
@@ -69,11 +76,7 @@ curl -fsSL https://get.docker.com | sh \
   && sudo systemctl enable --now docker \
   && sudo usermod -aG docker "$USER"
 
-
-#######################################
-# DOCKER, PUBLISHED PORTS ON LOOPBACK ONLY
-#######################################
-
+# published ports on loopback only
 sudo tee /etc/docker/daemon.json <<'EOF' \
   && sudo systemctl restart docker
 {
@@ -196,13 +199,6 @@ EOF
 
 
 #######################################
-# DISABLE DNF COUNT-ME
-#######################################
-
-sudo dnf config-manager setopt "*.countme=0"
-
-
-#######################################
 # JETBRAINS TOOLBOX
 #######################################
 
@@ -283,13 +279,9 @@ INSOMNIA_VERSION=$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.c
 
 sudo dnf install -y deluge-gtk
 
-
-#######################################
-# DELUGE, INCOMING PORT
+# Deluge incoming port
 # Deluge picks a random port by default, so set the same one there:
 # Preferences > Network > Incoming Port: untick Random, enter 6881.
-#######################################
-
 sudo firewall-cmd --permanent --zone=public --add-port=6881/tcp --add-port=6881/udp \
   && sudo firewall-cmd --reload
 
@@ -300,13 +292,7 @@ sudo firewall-cmd --permanent --zone=public --add-port=6881/tcp --add-port=6881/
 
 sudo dnf install -y vlc
 
-
-#######################################
 # VLC, H.264/HEVC DECODERS
-# From RPM Fusion free. Fedora's ffmpeg is built without them
-# and VLC does not pull them in itself.
-#######################################
-
 sudo dnf install -y distribution-gpg-keys \
   && sudo rpmkeys --import "/usr/share/distribution-gpg-keys/rpmfusion/RPM-GPG-KEY-rpmfusion-free-fedora-$(rpm -E %fedora)" \
   && sudo dnf install -y --setopt=localpkg_gpgcheck=1 "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
