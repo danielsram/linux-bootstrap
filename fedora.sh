@@ -1,8 +1,6 @@
 #######################################
 # Fedora Workstation 45 (GNOME), aarch64 and x86_64
 #
-# Not a script to run as a whole.
-# Paste the parts you want into a terminal.
 #######################################
 
 
