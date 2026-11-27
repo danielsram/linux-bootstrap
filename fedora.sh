@@ -259,9 +259,15 @@ FREELENS_VERSION=$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.c
 #######################################
 # MONGODB COMPASS
 # x86_64 only
+# Installed with rpm --excludepath, not dnf: its /usr/lib/.build-id links
+# are the same files Slack ships, and the second of the two is refused.
 #######################################
 
-sudo dnf install -y "$(curl -s https://s3.amazonaws.com/info-mongodb-com/com-download-center/compass.json | grep -o 'https://downloads\.mongodb\.com/compass/mongodb-compass-[0-9.]*\.x86_64\.rpm' | head -1)"
+COMPASS_URL=$(curl -s https://s3.amazonaws.com/info-mongodb-com/com-download-center/compass.json | grep -o 'https://downloads\.mongodb\.com/compass/mongodb-compass-[0-9.]*\.x86_64\.rpm' | head -1) \
+  && curl -fLO "$COMPASS_URL" \
+  && sudo dnf install -y at-spi2-core gnome-keyring gtk3 libXScrnSaver libXtst libnotify libsecret libuuid nss xdg-utils \
+  && sudo rpm -Uvh --excludepath=/usr/lib/.build-id "$(basename "$COMPASS_URL")"; \
+  rm -f "$(basename "$COMPASS_URL")"
 
 
 #######################################
