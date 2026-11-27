@@ -26,20 +26,6 @@ sudo dnf upgrade --refresh -y
 
 
 #######################################
-# SYSTEM MONITORING
-#######################################
-
-sudo dnf install -y lm_sensors \
-  && sudo sensors-detect --auto
-
-flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo \
-  && flatpak install -y flathub io.missioncenter.MissionCenter
-
-sudo dnf install -y libgtop2-devel \
-  && gdbus call --session --dest org.gnome.Shell.Extensions --object-path /org/gnome/Shell/Extensions --method org.gnome.Shell.Extensions.InstallRemoteExtension "Vitals@CoreCoding.com"
-
-
-#######################################
 # FIREWALL
 #######################################
 
