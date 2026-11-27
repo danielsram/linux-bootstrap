@@ -7,6 +7,20 @@
 
 
 #######################################
+# REMOVE GNOME APPS
+#######################################
+
+sudo dnf remove -y gnome-tour gnome-maps gnome-calendar gnome-contacts showtime
+
+
+#######################################
+# REMOVE FIREFOX
+#######################################
+
+sudo dnf remove -y firefox
+
+
+#######################################
 # SYSTEM UPDATE
 #######################################
 
@@ -14,45 +28,10 @@ sudo dnf upgrade --refresh -y
 
 
 #######################################
-# BASE PACKAGES
+# redis-cli
 #######################################
 
-sudo dnf install -y curl wget valkey-compat-redis unzip zip gcc gcc-c++ make ca-certificates gnupg2 xdg-utils dnf5-plugins
-
-
-#######################################
-# RPM FUSION FREE + CODECS
-#######################################
-
-sudo dnf install -y distribution-gpg-keys
-sudo rpmkeys --import "/usr/share/distribution-gpg-keys/rpmfusion/RPM-GPG-KEY-rpmfusion-free-fedora-$(rpm -E %fedora)"
-sudo dnf install -y --setopt=localpkg_gpgcheck=1 "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm"
-sudo dnf install -y libavcodec-freeworld
-
-
-#######################################
-# VIDEO ACCELERATION + SENSORS, INTEL
-# bare-metal x86_64, needs RPM Fusion free
-#######################################
-
-sudo dnf install -y libva-utils lm_sensors libva-intel-media-driver libva-intel-driver
-
-
-#######################################
-# VIDEO ACCELERATION + SENSORS, AMD
-# bare-metal x86_64, needs RPM Fusion free
-#######################################
-
-sudo dnf install -y libva-utils lm_sensors mesa-va-drivers-freeworld
-
-
-#######################################
-# FIRMWARE, MICROCODE AND POWER PROFILES STATUS
-#######################################
-
-rpm -q microcode_ctl amd-ucode-firmware linux-firmware alsa-sof-firmware
-systemctl is-active tuned-ppd
-
+sudo dnf install -y valkey-compat-redis
 
 #######################################
 # FIREWALL
@@ -65,26 +44,12 @@ sudo firewall-cmd --permanent --zone=public --remove-service=ssh
 sudo firewall-cmd --reload
 sudo firewall-cmd --list-all
 
-
-#######################################
-# SHELL CONFIG
-#######################################
-
-cat >> ~/.bashrc <<'EOF'
-export PATH="$HOME/.local/bin:$PATH"
-alias k='kubectl'
-alias g='gcloud'
-alias t='terraform'
-alias nonoclaude='nono run --allow-cwd  --read ~/.sdkman --read ~/.npm --read ~/.gradle --write ~/.gradle --read ~/.m2  --read ~/.embedmongo --profile claude-code -- claude'
-EOF
-source ~/.bashrc
-
-
 #######################################
 # NVM + NODE
 #######################################
 
-curl -f -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+NVM_VERSION=$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/nvm-sh/nvm/releases/latest | sed 's#.*/##')
+curl -f -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
 source ~/.nvm/nvm.sh
 nvm install 'lts/*'
 nvm alias default 'lts/*'
@@ -113,7 +78,16 @@ sudo usermod -aG docker "$USER"
 # DOCKER, PUBLISHED PORTS ON LOOPBACK ONLY
 #######################################
 
-printf '{\n  "ip": "127.0.0.1"\n}\n' | sudo tee /etc/docker/daemon.json
+sudo tee /etc/docker/daemon.json <<'EOF'
+{
+  "ip": "127.0.0.1",
+  "default-network-opts": {
+    "bridge": {
+      "com.docker.network.bridge.host_binding_ipv4": "127.0.0.1"
+    }
+  }
+}
+EOF
 sudo systemctl restart docker
 
 
@@ -121,9 +95,17 @@ sudo systemctl restart docker
 # KUBECTL
 #######################################
 
-curl -fLO "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')/kubectl"
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+KUBECTL_URL="https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')/kubectl"
+curl -fLO "$KUBECTL_URL"
+echo "$(curl -fsSL "${KUBECTL_URL}.sha256")  kubectl" | sha256sum --check - && sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 rm kubectl
+
+
+#######################################
+# K9S
+#######################################
+
+sudo dnf install -y k9s
 
 
 #######################################
@@ -131,16 +113,16 @@ rm kubectl
 #######################################
 
 sudo dnf install -y openssl
-curl -f https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+curl -f https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
 
 
 #######################################
 # AWS CLI
 #######################################
 
-curl "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o awscliv2.zip
+curl -f "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o awscliv2.zip
 unzip -q awscliv2.zip
-sudo ./aws/install
+sudo ./aws/install --update
 rm -rf aws awscliv2.zip
 
 
@@ -186,7 +168,17 @@ curl -fsSL https://claude.ai/install.sh | bash
 #######################################
 
 NONO_VERSION=$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/nolabs-ai/nono/releases/latest | sed 's#.*/v##')
-sudo dnf install -y "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/nono-cli-${NONO_VERSION}-1.$(uname -m).rpm"
+NONO_RPM="nono-cli-${NONO_VERSION}-1.$(uname -m).rpm"
+curl -fLO "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${NONO_RPM}"
+curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/SHA256SUMS.txt" | sha256sum --check --ignore-missing - && sudo dnf install -y "./${NONO_RPM}"
+rm -f "$NONO_RPM"
+
+
+#######################################
+# HERDR
+#######################################
+
+curl -fsSL https://herdr.dev/install.sh | sh
 
 
 #######################################
@@ -206,24 +198,10 @@ xdg-settings set default-web-browser brave-browser.desktop
 
 
 #######################################
-# REMOVE FIREFOX
-#######################################
-
-sudo dnf remove -y firefox
-
-
-#######################################
 # DISABLE DNF COUNT-ME
 #######################################
 
 sudo dnf config-manager setopt "*.countme=0"
-
-
-#######################################
-# REMOVE GNOME APPS
-#######################################
-
-sudo dnf remove -y gnome-tour gnome-maps gnome-calendar gnome-contacts showtime
 
 
 #######################################
@@ -265,6 +243,8 @@ name=slack
 baseurl=https://packagecloud.io/slacktechnologies/slack/fedora/21/$basearch
 enabled=1
 gpgcheck=0
+repo_gpgcheck=1
+gpgkey=https://packagecloud.io/slacktechnologies/slack/gpgkey
 EOF
 sudo dnf install -y slack
 
@@ -303,12 +283,24 @@ sudo dnf install -y "https://github.com/Kong/insomnia/releases/download/core@${I
 
 sudo dnf install -y deluge-gtk
 
+# Incoming port for Deluge. Deluge picks a random port by default, so set the same one there:
+# Preferences > Network > Incoming Port: untick Random, enter 6881.
+sudo firewall-cmd --permanent --zone=public --add-port=6881/tcp --add-port=6881/udp
+sudo firewall-cmd --reload
+
 
 #######################################
 # VLC
 #######################################
 
 sudo dnf install -y vlc
+
+# H.264/HEVC decoders for VLC, from RPM Fusion free.
+# Fedora's ffmpeg is built without them and VLC does not pull them in itself.
+sudo dnf install -y distribution-gpg-keys
+sudo rpmkeys --import "/usr/share/distribution-gpg-keys/rpmfusion/RPM-GPG-KEY-rpmfusion-free-fedora-$(rpm -E %fedora)"
+sudo dnf install -y --setopt=localpkg_gpgcheck=1 "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm"
+sudo dnf install -y libavcodec-freeworld
 
 
 #######################################
